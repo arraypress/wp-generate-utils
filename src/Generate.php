@@ -6,10 +6,11 @@
  * codes, slugs, and random data. Focuses on practical, frequently-used operations
  * with flexible options and smart defaults.
  *
- * @package ArrayPress\GenerateUtils
- * @since   1.0.0
- * @author  ArrayPress
- * @license GPL-2.0-or-later
+ * @package     ArrayPress\GenerateUtils
+ * @copyright   Copyright (c) 2025, ArrayPress Limited
+ * @license     GPL-2.0-or-later
+ * @since       1.0.0
+ * @author      David Sherlock
  */
 
 declare( strict_types=1 );
@@ -18,31 +19,12 @@ namespace ArrayPress\GenerateUtils;
 
 use Exception;
 
+/**
+ * Class Generate
+ *
+ * Utility functions for generating identifiers, codes, and random data.
+ */
 class Generate {
-
-	/**
-	 * Generate a UUID v4.
-	 *
-	 * @return string Standard UUID v4 format (xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx).
-	 */
-	public static function uuid(): string {
-		try {
-			$data = random_bytes( 16 );
-		} catch ( Exception $e ) {
-			// Fallback to less secure but functional method
-			$data = '';
-			for ( $i = 0; $i < 16; $i ++ ) {
-				$data .= chr( wp_rand( 0, 255 ) );
-			}
-		}
-
-		// Set version to 0100 (UUID version 4)
-		$data[6] = chr( ord( $data[6] ) & 0x0f | 0x40 );
-		// Set bits 6-7 to 10 (UUID variant 1)
-		$data[8] = chr( ord( $data[8] ) & 0x3f | 0x80 );
-
-		return vsprintf( '%s%s-%s-%s-%s-%s%s%s', str_split( bin2hex( $data ), 4 ) );
-	}
 
 	/**
 	 * Generate a unique key with prefix.
@@ -56,7 +38,6 @@ class Generate {
 		$prefix = $prefix ?: 'id';
 		$length = max( 1, $length );
 
-		// Use alphanumeric lowercase for clean, URL-safe keys
 		$random = self::string( $length, '0123456789abcdefghijklmnopqrstuvwxyz' );
 
 		return $prefix . '_' . $random;
@@ -65,12 +46,14 @@ class Generate {
 	/**
 	 * Generate short URL-safe IDs (like YouTube/Bitly).
 	 *
+	 * Uses a character set that excludes commonly confused characters
+	 * (0/O, 1/I/l) for better readability.
+	 *
 	 * @param int $length Length of the ID (default: 7).
 	 *
 	 * @return string Short URL-safe ID.
 	 */
 	public static function short_id( int $length = 7 ): string {
-		// URL-safe characters without confusing ones (removed 0, O, 1, I, l)
 		$chars = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 		return self::string( $length, $chars );
@@ -78,6 +61,9 @@ class Generate {
 
 	/**
 	 * Generate sequential IDs with optional prefix.
+	 *
+	 * Uses WordPress options to maintain a persistent counter.
+	 * Useful for invoice numbers, order IDs, ticket numbers, etc.
 	 *
 	 * @param string $prefix  Prefix for the ID (default: '').
 	 * @param int    $padding Zero-padding length (default: 8).
@@ -167,7 +153,7 @@ class Generate {
 	 * Generate random strings with high entropy.
 	 *
 	 * @param int    $length  Length of the string (default: 16).
-	 * @param string $charset Character set to use ('alnum', 'alpha', 'numeric', 'hex') or custom string.
+	 * @param string $charset Character set: 'alnum', 'alpha', 'numeric', 'hex', or custom string.
 	 * @param bool   $secure  Use cryptographically secure generation (default: true).
 	 *
 	 * @return string Random string.
@@ -208,44 +194,6 @@ class Generate {
 	}
 
 	/**
-	 * Generate security tokens for verification, sessions, etc.
-	 *
-	 * @param int    $length Length of the token (default: 32).
-	 * @param string $action Optional action context for additional entropy.
-	 * @param string $format Output format: 'alnum' or 'hex' (default: 'alnum').
-	 *
-	 * @return string Security token.
-	 */
-	public static function token( int $length = 32, string $action = '', string $format = 'alnum' ): string {
-		$length = max( 8, $length );
-
-		// For hex format, use binary generation
-		if ( $format === 'hex' ) {
-			try {
-				return bin2hex( random_bytes( (int) ceil( $length / 2 ) ) );
-			} catch ( Exception $e ) {
-				$random = wp_generate_password( $length, false, false );
-
-				return substr( md5( $random . AUTH_KEY ), 0, $length );
-			}
-		}
-
-		// Generate base random string (alphanumeric, secure)
-		$random = self::string( $length, 'alnum', true );
-
-		// Add WordPress-specific entropy if action provided
-		if ( $action ) {
-			$nonce = wp_create_nonce( $action );
-			$raw   = $random . '|' . $nonce . '|' . time() . '|' . AUTH_KEY;
-			$token = wp_hash( $raw );
-
-			return substr( $token, 0, $length );
-		}
-
-		return $random;
-	}
-
-	/**
 	 * Generate a magic link token with expiration.
 	 *
 	 * Creates a secure token with metadata for magic link authentication,
@@ -258,7 +206,7 @@ class Generate {
 	 * @return array {
 	 *     Token data for magic link.
 	 *
-	 * @type string  $token      The secure token string.
+	 * @type string  $token      The secure token string (hex).
 	 * @type string  $expires    UTC expiration datetime.
 	 * @type int     $expires_at Unix timestamp of expiration.
 	 * @type string  $context    Token context/purpose.
@@ -268,7 +216,7 @@ class Generate {
 		try {
 			$token = bin2hex( random_bytes( $length ) );
 		} catch ( Exception $e ) {
-			$token = wp_generate_password( $length * 2, false, false );
+			$token = self::string( $length * 2, 'hex', false );
 		}
 
 		$expires_at = time() + $expires_in;
@@ -283,6 +231,8 @@ class Generate {
 
 	/**
 	 * Generate unique WordPress slugs.
+	 *
+	 * Checks for existing slugs and appends a counter to ensure uniqueness.
 	 *
 	 * @param string $title   Title to base slug on.
 	 * @param string $context Context for uniqueness check ('post', 'term', 'user').
